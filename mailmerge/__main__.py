@@ -68,6 +68,9 @@ def main(*, sample, dry_run, limit, no_limit, resume,
     """
     Mailmerge is a simple, command line mail merge tool.
 
+    Supports conditional templates: Add a 'template' column to your CSV
+    to specify different template files for different recipients.
+
     For examples and formatting features, see:
     https://github.com/awdeorio/mailmerge
     """
@@ -88,16 +91,62 @@ def main(*, sample, dry_run, limit, no_limit, resume,
     # Calculate start and stop indexes.  Start and stop are zero-based.  The
     # input --resume is one-based.
     start = resume - 1
-    stop = None if no_limit else resume - 1 + limit
 
     # Run
     message_num = 1 + start
+    messages_sent = 0  # Track how many messages were actually sent (not skipped)
     try:
-        template_message = TemplateMessage(template_path)
-        csv_database = read_csv_database(database_path)
         sendmail_client = SendmailClient(config_path, dry_run)
+        
+        # Check if CSV has a 'template' column for conditional templates
+        template_column_present = check_for_template_column(database_path)
+        template_cache = {}  # Cache loaded templates
+        template_message = None  # Will be set per row if conditional
+        
+        if template_column_present:
+            print(">>> Detected 'template' column - using conditional templates")
+        else:
+            # Fallback to single template (backward compatibility)
+            template_message = TemplateMessage(template_path)
 
-        for _, row in enumerate_range(csv_database, start, stop):
+        for row_index, row in enumerate_range(read_csv_database(database_path), start, None):
+            # Skip rows that have already been sent
+            if row.get('sent', '').lower() == 'yes':
+                print_bright_white_on_cyan(
+                    f">>> message {message_num} already sent, skipping",
+                    output_format,
+                )
+                message_num += 1
+                continue
+            
+            # Check if we've hit the limit of messages to send (not counting skipped ones)
+            if not no_limit and messages_sent >= limit:
+                break
+            
+            if template_column_present:
+                # Use conditional template based on CSV 'template' column
+                template_name = row.get('template', '').strip()
+                if not template_name:
+                    raise exceptions.MailmergeError(
+                        f"'template' column is empty"
+                    )
+                
+                # Load template if not cached
+                if template_name not in template_cache:
+                    # Try templates directory first, then fallback to same directory
+                    templates_dir = template_path.parent / "templates"
+                    template_file_path = templates_dir / template_name
+                    
+                    if not template_file_path.exists():
+                        raise exceptions.MailmergeError(
+                            f"Template file not found: {template_name} "
+                            f"(searched in templates/)"
+                        )
+                    template_cache[template_name] = TemplateMessage(template_file_path)
+                    print(f">>> Loaded template: {template_name}")
+                
+                template_message = template_cache[template_name]
+            
             sender, recipients, message = template_message.render(row)
             while True:
                 try:
@@ -119,7 +168,13 @@ def main(*, sample, dry_run, limit, no_limit, resume,
                 f">>> message {message_num} sent",
                 output_format,
             )
+            
+            # Update the CSV to mark this row as sent (only if not dry run)
+            if not dry_run:
+                update_csv_sent_status(database_path, row_index)
+            
             message_num += 1
+            messages_sent += 1
 
     except exceptions.MailmergeError as error:
         hint_text = ""
@@ -128,10 +183,12 @@ def main(*, sample, dry_run, limit, no_limit, resume,
         sys.exit(f"Error on message {message_num}\n{error}{hint_text}")
 
     # Hints for user
+
     if not no_limit:
-        pluralizer = "" if limit == 1 else "s"
+        pluralizer = "" if messages_sent == 1 else "s"
         print(
-            f">>> Limit was {limit} message{pluralizer}.  "
+            f">>> Sent {messages_sent} message{pluralizer} "
+            f"(limit was {limit}).  "
             "To remove the limit, use the --no-limit option."
         )
     if dry_run:
@@ -139,10 +196,6 @@ def main(*, sample, dry_run, limit, no_limit, resume,
             ">>> This was a dry run.  "
             "To send messages, use the --no-dry-run option."
         )
-
-
-if __name__ == "__main__":
-    main()  # pylint: disable=missing-kwoa
 
 
 def check_input_files(template_path, database_path, config_path, sample):
@@ -298,6 +351,18 @@ def detect_database_format(database_file):
     return csvdialect
 
 
+def check_for_template_column(database_path):
+    """Check if the CSV database has a 'template' column.
+    
+    Reads just the header row to determine if conditional templates are enabled.
+    """
+    with database_path.open(encoding="utf-8-sig") as database_file:
+        csvdialect = detect_database_format(database_file)
+        reader = csv.DictReader(database_file, dialect=csvdialect)
+        # Check if 'template' is in the fieldnames (header row)
+        return 'template' in (reader.fieldnames or [])
+
+
 def read_csv_database(database_path):
     """Read database CSV file, providing one line at a time.
 
@@ -319,6 +384,31 @@ def read_csv_database(database_path):
             raise exceptions.MailmergeError(
                 f"{database_path}:{reader.line_num}: {err}"
             )
+
+
+def update_csv_sent_status(database_path, row_index):
+    """Update the 'sent' column for a specific row in the CSV file.
+    
+    Args:
+        database_path: Path to the CSV database file
+        row_index: Zero-based index of the row to update (excluding header)
+    """
+    # Read all rows from the CSV
+    with database_path.open(encoding="utf-8-sig") as database_file:
+        csvdialect = detect_database_format(database_file)
+        reader = csv.DictReader(database_file, dialect=csvdialect)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    
+    # Update the specified row's 'sent' status
+    if 'sent' in fieldnames and 0 <= row_index < len(rows):
+        rows[row_index]['sent'] = 'yes'
+    
+    # Write all rows back to the CSV
+    with database_path.open('w', encoding="utf-8", newline='') as database_file:
+        writer = csv.DictWriter(database_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def enumerate_range(iterable, start=0, stop=None):
@@ -394,3 +484,7 @@ def is_attachment(part):
         part.get("Content-Disposition") != "inline" and
         part.get("Content-Disposition") is not None
     )
+
+
+if __name__ == "__main__":
+    main()  # pylint: disable=missing-kwoa

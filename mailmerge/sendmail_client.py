@@ -16,7 +16,7 @@ from . import exceptions
 # Type to store info read from config file
 MailmergeConfig = collections.namedtuple(
     "MailmergeConfig",
-    ["username", "host", "port", "security", "ratelimit"],
+    ["username", "host", "port", "security", "ratelimit", "password"],
 )
 
 
@@ -42,6 +42,7 @@ class SendmailClient:
             security = parser.get("smtp_server", "security", fallback=None)
             username = parser.get("smtp_server", "username", fallback=None)
             ratelimit = parser.getint("smtp_server", "ratelimit", fallback=0)
+            password = parser.get("smtp_server", "password", fallback=None)
         except (configparser.Error, ValueError) as err:
             raise exceptions.MailmergeError(f"{self.config_path}: {err}")
 
@@ -64,7 +65,7 @@ class SendmailClient:
 
         # Save validated configuration
         self.config = MailmergeConfig(
-            username, host, port, security, ratelimit,
+            username, host, port, security, ratelimit, password,
         )
 
     def sendmail(self, sender, recipients, message):
@@ -81,10 +82,12 @@ class SendmailClient:
 
         # Ask for password if necessary
         if self.config.security is not None and self.password is None:
-            self.password = getpass.getpass(
-                f">>> password for {self.config.username} on "
-                f"{self.config.host}: "
-            )
+            self.password = self.config.password
+
+            if self.password is None:
+                raise exceptions.MailmergeError(
+                    f"Password is required in config file"
+                )
 
         # Send
         host, port = self.config.host, self.config.port

@@ -1,0 +1,24 @@
+TO: {{email}}
+SUBJECT: Interested in SWE 1 at {{company}} | Yusuf Nissar (a fellow former Wealthsimpler)
+FROM: Yusuf Nissar <yusufnissar8@gmail.com>
+ATTACHMENT: ../mailmerge/attachments/Yusuf Nissar Resume.pdf
+
+Hi {{name}},
+
+I saw you worked at Wealthsimple too, and I wanted to reach out with a quick introduction as I believe I could provide a lot of value to Wealthsimple as a new-grad software developer.
+
+My name is Yusuf Nissar, I'm a 5th-year Computer Science and Business Administration student at Western University & Ivey.
+
+I know your time is precious, so I'll keep it brief:
+    1. Shipped flagship features under tight deadlines to 3M users @ Wealthsimple (cheque deposits, currency conversions, DPSP accounts, target date portfolios)
+    2. Energized by solving messy root problems and unblocking engineers 
+        a. Wealthsimple: 15% of EOC tickets are auto-resolved by creating a chatbot 
+        b. Citibank: 67% improvement in support efficiency via a tech support CLI tool
+    3. Love to collaborate closely with designers, PMs and engineers because it leads to the best products 
+
+But most importantly, I love working on complex systems and getting to build awesome products alongside your talented engineers would be amazing.
+
+I've attached my resume here and would love a referral if you think I could be a good fit!
+
+Regardless, I know you are busy, so no worries if you cannot, but thank you so much for reading this email :)
+
